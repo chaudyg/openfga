@@ -13,6 +13,7 @@ import (
 	"github.com/openfga/openfga/internal/concurrency"
 	"github.com/openfga/openfga/internal/iterator"
 	"github.com/openfga/openfga/internal/modelgraph"
+	"github.com/openfga/openfga/internal/reachability"
 	"github.com/openfga/openfga/pkg/storage"
 	"github.com/openfga/openfga/pkg/tuple"
 )
@@ -29,15 +30,20 @@ type Recursive struct {
 	bottomUp         *bottomUp
 	model            *modelgraph.AuthorizationModelGraph
 	datastore        storage.RelationshipTupleReader
+	reachability     *reachability.Index
 }
 
-func NewRecursive(model *modelgraph.AuthorizationModelGraph, ds storage.RelationshipTupleReader, limit int) *Recursive {
-	return &Recursive{
+func NewRecursive(model *modelgraph.AuthorizationModelGraph, ds storage.RelationshipTupleReader, limit int, indexes ...*reachability.Index) *Recursive {
+	recursive := &Recursive{
 		bottomUp:         newBottomUpRecursive(model, ds),
 		model:            model,
 		datastore:        ds,
 		concurrencyLimit: limit,
 	}
+	if len(indexes) > 0 {
+		recursive.reachability = indexes[0]
+	}
+	return recursive
 }
 
 func (s *Recursive) Userset(ctx context.Context, req *Request, edge *authzGraph.WeightedAuthorizationModelEdge, rightIter storage.TupleKeyIterator, _ *sync.Map) (*Response, error) {
@@ -180,6 +186,40 @@ func (s *Recursive) execute(ctx context.Context, req *Request, edge *authzGraph.
 func (s *Recursive) recursiveMatch(ctx context.Context, req *Request, recursiveEdge *authzGraph.WeightedAuthorizationModelEdge, recursiveType RecursiveType, idsFromUser, idsFromObject map[string]struct{}) (*Response, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	if recursiveType == RecursiveTypeTTU && s.reachability != nil && !hasContextualTuplesForRelation(req, recursiveEdge.GetTuplesetRelation()) {
+		seeds := make([]string, 0, len(idsFromObject))
+		objectType := ""
+		for object := range idsFromObject {
+			currentObjectType, _ := tuple.SplitObject(object)
+			if objectType == "" {
+				objectType = currentObjectType
+			} else if objectType != currentObjectType {
+				objectType = ""
+				break
+			}
+			seeds = append(seeds, object)
+		}
+
+		if objectType != "" {
+			matches, used, err := s.reachability.MatchesAnyAncestor(
+				ctx,
+				s.datastore,
+				req.GetStoreID(),
+				objectType,
+				recursiveEdge.GetTuplesetRelation(),
+				seeds,
+				idsFromUser,
+			)
+			if err != nil {
+				return nil, err
+			}
+			if used && matches {
+				return &Response{Allowed: true}, nil
+			}
+		}
+	}
+
 	responsesChan := make(chan ResponseMsg, s.concurrencyLimit) // needs to be buffered to prevent out of order closed events
 
 	var err error
@@ -233,6 +273,15 @@ func (s *Recursive) recursiveMatch(ctx context.Context, req *Request, recursiveE
 			}
 		}
 	}
+}
+
+func hasContextualTuplesForRelation(req *Request, relation string) bool {
+	for _, contextualTuple := range req.GetContextualTuples() {
+		if contextualTuple.GetRelation() == relation {
+			return true
+		}
+	}
+	return false
 }
 
 // Note that visited does not necessary means that there are cycles.  For the following model,

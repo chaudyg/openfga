@@ -16,6 +16,7 @@ import (
 	"github.com/openfga/openfga/internal/check"
 	"github.com/openfga/openfga/internal/modelgraph"
 	"github.com/openfga/openfga/internal/planner"
+	"github.com/openfga/openfga/internal/reachability"
 	"github.com/openfga/openfga/internal/shared"
 	"github.com/openfga/openfga/internal/utils"
 	"github.com/openfga/openfga/internal/utils/apimethod"
@@ -58,6 +59,7 @@ type CheckQueryV2 struct {
 	planner                   planner.Manager
 	concurrencyLimit          int
 	upstreamTimeout           time.Duration
+	reachabilityIndex         *reachability.Index
 
 	// Shared resources for iterator cache (singleflight, waitgroup)
 	sharedResources *shared.SharedDatastoreResources
@@ -141,6 +143,14 @@ func WithCheckQueryV2DatastoreThrottling(enabled bool, threshold int, duration t
 func WithCheckQueryV2UpstreamTimeout(timeout time.Duration) CheckQueryV2Option {
 	return func(cmd *CheckQueryV2) {
 		cmd.upstreamTimeout = timeout
+	}
+}
+
+// WithCheckQueryV2ReachabilityIndex enables the optional, derived index used
+// by the recursive TTU strategy.
+func WithCheckQueryV2ReachabilityIndex(index *reachability.Index) CheckQueryV2Option {
+	return func(cmd *CheckQueryV2) {
+		cmd.reachabilityIndex = index
 	}
 }
 
@@ -261,6 +271,7 @@ func (q *CheckQueryV2) resolve(ctx context.Context, params *CheckCommandParams) 
 		ConcurrencyLimit:          q.concurrencyLimit,
 		UpstreamTimeout:           q.upstreamTimeout,
 		Logger:                    q.logger,
+		ReachabilityIndex:         q.reachabilityIndex,
 	})
 
 	res, err := resolver.ResolveCheck(ctx, r)

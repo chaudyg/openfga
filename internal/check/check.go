@@ -22,6 +22,7 @@ import (
 	"github.com/openfga/openfga/internal/iterator"
 	"github.com/openfga/openfga/internal/modelgraph"
 	"github.com/openfga/openfga/internal/planner"
+	"github.com/openfga/openfga/internal/reachability"
 	"github.com/openfga/openfga/internal/telemetry"
 	"github.com/openfga/openfga/pkg/logger"
 	"github.com/openfga/openfga/pkg/storage"
@@ -47,6 +48,7 @@ type Config struct {
 	UpstreamTimeout           time.Duration
 	Logger                    logger.Logger
 	Strategies                map[string]Strategy
+	ReachabilityIndex         *reachability.Index
 }
 
 type Resolver struct {
@@ -85,7 +87,7 @@ func New(cfg Config) *Resolver {
 		r.strategies = map[string]Strategy{
 			DefaultStrategyName:   NewDefault(cfg.Model, r, cfg.ConcurrencyLimit),
 			WeightTwoStrategyName: NewWeight2(cfg.Model, cfg.Datastore),
-			RecursiveStrategyName: NewRecursive(cfg.Model, cfg.Datastore, cfg.ConcurrencyLimit),
+			RecursiveStrategyName: NewRecursive(cfg.Model, cfg.Datastore, cfg.ConcurrencyLimit, cfg.ReachabilityIndex),
 		}
 	}
 

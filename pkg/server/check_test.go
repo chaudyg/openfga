@@ -153,6 +153,7 @@ func setupCheckServer(t *testing.T, modelDSL string, tuples []*openfgav1.TupleKe
 		StoreId:         storeID,
 		SchemaVersion:   model.GetSchemaVersion(),
 		TypeDefinitions: model.GetTypeDefinitions(),
+		Conditions:      model.GetConditions(),
 	})
 	require.NoError(t, err)
 	modelID := writeModelResp.GetAuthorizationModelId()

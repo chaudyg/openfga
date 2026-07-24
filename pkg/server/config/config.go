@@ -119,6 +119,7 @@ const (
 	ExperimentalPipelineListObjects      = "pipeline_list_objects"
 	ExperimentalShadowWeightedGraphCheck = "shadow_weighted_graph_check"
 	ExperimentalWeightedGraphCheck       = "weighted_graph_check"
+	ExperimentalReachabilityIndex        = "reachability_index"
 	ExperimentalAuthZen                  = "authzen"
 )
 
