@@ -38,7 +38,7 @@ type Index struct {
 	effectiveEntries  map[effectiveIndexKey]*effectiveEntry
 	effectivePlans    map[string]*effectiveModelPlan
 	storeGenerations  map[string]uint64
-	storeLocks        map[string]*sync.Mutex
+	storeLocks        map[string]*sync.RWMutex
 	maxNodes          int
 	maxClosureEntries uint64
 	buildTimeout      time.Duration
@@ -85,7 +85,7 @@ func New(options ...Option) *Index {
 		effectiveEntries:  make(map[effectiveIndexKey]*effectiveEntry),
 		effectivePlans:    make(map[string]*effectiveModelPlan),
 		storeGenerations:  make(map[string]uint64),
-		storeLocks:        make(map[string]*sync.Mutex),
+		storeLocks:        make(map[string]*sync.RWMutex),
 		maxNodes:          100_000,
 		maxClosureEntries: 1_000_000,
 		buildTimeout:      30 * time.Second,
@@ -101,7 +101,7 @@ func New(options ...Option) *Index {
 // datastore mutation is in progress.
 type Mutation struct {
 	locks     []*sync.Mutex
-	storeLock *sync.Mutex
+	storeLock *sync.RWMutex
 	once      sync.Once
 }
 
@@ -181,12 +181,12 @@ func (i *Index) BeginStoreMutation(storeID string) *Mutation {
 	return &Mutation{storeLock: storeLock}
 }
 
-func (i *Index) getStoreLock(storeID string) *sync.Mutex {
+func (i *Index) getStoreLock(storeID string) *sync.RWMutex {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	storeLock := i.storeLocks[storeID]
 	if storeLock == nil {
-		storeLock = &sync.Mutex{}
+		storeLock = &sync.RWMutex{}
 		i.storeLocks[storeID] = storeLock
 	}
 	return storeLock

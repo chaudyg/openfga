@@ -49,6 +49,16 @@ func TestReachabilityIndexRequiresSingleWriterGuard(t *testing.T) {
 	require.Nil(t, server.reachabilityIndexForStore(request.GetStoreId()))
 }
 
+func TestReachabilityIndexRequiresWeightedGraphCheck(t *testing.T) {
+	// Without the weighted-graph flag no check path consults the index, so
+	// writes must not pay the mutation guard either.
+	server, request := setupCheckServer(t, "", nil, WithFeatureFlagClient(featureflags.NewDefaultClient([]string{
+		serverconfig.ExperimentalReachabilityIndex,
+	})), WithReachabilityIndexSingleWriter())
+
+	require.Nil(t, server.reachabilityIndexForStore(request.GetStoreId()))
+}
+
 func TestCheck_ReachabilityIndexResolvesNestedTTU(t *testing.T) {
 	modelDSL := `
 		model

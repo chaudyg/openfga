@@ -152,6 +152,83 @@ func TestIndexMatchesGenericConditionDimensions(t *testing.T) {
 	)
 }
 
+func TestEffectiveIndexDoesNotAnswerTTUDelegatingToAnotherRelation(t *testing.T) {
+	t.Parallel()
+
+	model := testutils.MustTransformDSLToProtoWithID(`
+		model
+			schema 1.1
+		type user
+		type node
+			relations
+				define parent: [node]
+				define viewer: [user] or viewer from parent
+				define writer: [user]
+				define reader: [user] or writer from parent
+	`)
+	ds := memory.New()
+	require.NoError(t, ds.Write(context.Background(), "store", nil, []*openfgav1.TupleKey{
+		{Object: "node:api", Relation: "viewer", User: "user:anne"},
+		{Object: "node:api", Relation: "writer", User: "user:anne"},
+	}))
+
+	index := New(WithMaxNodes(100), WithMaxClosureEntries(1_000))
+	requireEffectiveMatchEventually(
+		t, index, ds, model,
+		"node:api", "viewer", "user:anne", nil, true,
+	)
+
+	// anne is a writer of node:api itself, but reader admits only writers of
+	// the PARENT. Even with a warm snapshot the index must delegate this
+	// relation to the normal resolver.
+	_, used, err := index.MatchesEffectiveSubjectForModel(
+		context.Background(), ds, "store", model,
+		"node:api", "reader", "user:anne", nil,
+	)
+	require.NoError(t, err)
+	require.False(t, used)
+}
+
+func TestEffectiveIndexDoesNotBlockBehindMutation(t *testing.T) {
+	t.Parallel()
+
+	model := genericEffectiveModel()
+	ds := memory.New()
+	require.NoError(t, ds.Write(context.Background(), "store", nil, []*openfgav1.TupleKey{
+		{Object: "node:root", Relation: "reader", User: "user:anne"},
+	}))
+
+	index := New(WithMaxNodes(100), WithMaxClosureEntries(1_000))
+	requireEffectiveMatchEventually(
+		t, index, ds, model,
+		"node:root", "can_access", "user:anne", nil, true,
+	)
+
+	// While a datastore mutation is in flight the index must delegate to the
+	// normal resolver immediately rather than park the check on the guard.
+	mutation := index.BeginMutation("store", nil, nil)
+	defer mutation.End()
+
+	done := make(chan struct{})
+	var matches, used bool
+	var err error
+	go func() {
+		defer close(done)
+		matches, used, err = index.MatchesEffectiveSubjectForModel(
+			context.Background(), ds, "store", model,
+			"node:root", "can_access", "user:anne", nil,
+		)
+	}()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("check blocked behind an in-flight mutation")
+	}
+	require.NoError(t, err)
+	require.False(t, used)
+	require.False(t, matches)
+}
+
 func TestEffectiveIndexRevocationInvalidatesBeforeCommit(t *testing.T) {
 	t.Parallel()
 

@@ -110,10 +110,16 @@ func (i *Index) MatchesEffectiveSubjectForModel(
 
 	key := effectiveIndexKey{storeID: storeID, modelID: model.GetId()}
 	storeLock := i.getStoreLock(storeID)
-	storeLock.Lock()
+	// A write-held store lock means a mutation is invalidating this store's
+	// snapshots; delegate to the normal resolver instead of parking the
+	// check on the guard for the duration of the datastore write. Concurrent
+	// checks share the read lock and do not contend with each other.
+	if !storeLock.TryRLock() {
+		return false, false, nil
+	}
 	entry := i.getEffectiveEntry(key)
 	entry.mu.Lock()
-	storeLock.Unlock()
+	storeLock.RUnlock()
 
 	if i.snapshotTTL > 0 &&
 		(entry.state == stateReady || entry.state == stateDisabled) &&

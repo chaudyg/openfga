@@ -33,6 +33,26 @@ func TestBuildEffectiveModelPlan(t *testing.T) {
 		}])
 	})
 
+	t.Run("rejects TTU delegating to a different relation", func(t *testing.T) {
+		model := testutils.MustTransformDSLToProtoWithID(`
+			model
+				schema 1.1
+			type user
+			type collection
+				relations
+					define parent: [collection]
+					define viewer: [user] or viewer from parent
+					define writer: [user]
+					define reader: [user] or writer from parent
+		`)
+		plan := buildEffectiveModelPlan(model)
+		require.NotNil(t, plan)
+		_, indexed := plan.indexedRelations[modelRelationKey{
+			objectType: "collection", relation: "reader",
+		}]
+		require.False(t, indexed)
+	})
+
 	t.Run("rejects intersection and exclusion rewrites", func(t *testing.T) {
 		model := testutils.MustTransformDSLToProtoWithID(`
 			model

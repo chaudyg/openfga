@@ -196,27 +196,17 @@ func flattenEffectiveUserset(
 		if !isDirectSameTypeTupleset(typeDefinition, tuplesetRelation) {
 			return nil, false
 		}
-		computedRelation := ttu.GetComputedUserset().GetRelation()
-		var sources []effectiveSource
-		if computedRelation == currentRelation {
-			sources = []effectiveSource{{relation: currentRelation}}
-		} else {
-			var ok bool
-			sources, ok = flattenEffectiveSources(
-				typeDefinitions, typeDefinition, computedRelation, visiting,
-			)
-			if !ok {
-				return nil, false
-			}
+		// Only the self-recursive shape `X: ... or X from parent` is eligible.
+		// A TTU delegating to a different relation grants that relation's
+		// subjects on the parent only, while resolveSource unions direct
+		// grants starting at the object itself and would over-grant.
+		if ttu.GetComputedUserset().GetRelation() != currentRelation {
+			return nil, false
 		}
-		for idx := range sources {
-			if sources[idx].inheritanceRelation != "" &&
-				sources[idx].inheritanceRelation != tuplesetRelation {
-				return nil, false
-			}
-			sources[idx].inheritanceRelation = tuplesetRelation
-		}
-		return sources, true
+		return []effectiveSource{{
+			relation:            currentRelation,
+			inheritanceRelation: tuplesetRelation,
+		}}, true
 	case *openfgav1.Userset_Union:
 		var result []effectiveSource
 		for _, child := range userset.Union.GetChild() {

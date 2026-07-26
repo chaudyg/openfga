@@ -272,8 +272,11 @@ type Server struct {
 type OpenFGAServiceV1Option func(s *Server)
 
 func (s *Server) reachabilityIndexForStore(storeID string) *reachability.Index {
+	// Only the v2 check path consults the index, so without the
+	// weighted-graph flag mutations must not pay the guard either.
 	if s.reachabilityIndexSingleWriter &&
-		s.featureFlagClient.Boolean(serverconfig.ExperimentalReachabilityIndex, storeID) {
+		s.featureFlagClient.Boolean(serverconfig.ExperimentalReachabilityIndex, storeID) &&
+		s.featureFlagClient.Boolean(serverconfig.ExperimentalWeightedGraphCheck, storeID) {
 		return s.reachabilityIndex
 	}
 	return nil
