@@ -272,7 +272,8 @@ type Server struct {
 type OpenFGAServiceV1Option func(s *Server)
 
 func (s *Server) reachabilityIndexForStore(storeID string) *reachability.Index {
-	if s.featureFlagClient.Boolean(serverconfig.ExperimentalReachabilityIndex, storeID) {
+	if s.reachabilityIndexSingleWriter &&
+		s.featureFlagClient.Boolean(serverconfig.ExperimentalReachabilityIndex, storeID) {
 		return s.reachabilityIndex
 	}
 	return nil

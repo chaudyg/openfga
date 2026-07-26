@@ -55,12 +55,14 @@ func (s *Server) Write(ctx context.Context, req *openfgav1.WriteRequest) (*openf
 		s.datastore,
 		commands.WithWriteCmdLogger(s.logger),
 	)
-	mutation := s.reachabilityIndex.BeginMutation(
-		storeID,
-		req.GetWrites().GetTupleKeys(),
-		req.GetDeletes().GetTupleKeys(),
-	)
-	defer mutation.End()
+	if index := s.reachabilityIndexForStore(storeID); index != nil {
+		mutation := index.BeginMutation(
+			storeID,
+			req.GetWrites().GetTupleKeys(),
+			req.GetDeletes().GetTupleKeys(),
+		)
+		defer mutation.End()
+	}
 
 	resp, err := cmd.Execute(ctx, &openfgav1.WriteRequest{
 		StoreId:              storeID,

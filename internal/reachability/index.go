@@ -79,6 +79,8 @@ const defaultSnapshotTTL = 10 * time.Second
 type Index struct {
 	mu                sync.Mutex // protects entries, storeGenerations, storeLocks, and pollStates
 	entries           map[indexKey]*entry
+	effectiveEntries  map[effectiveIndexKey]*effectiveEntry
+	effectivePlans    map[string]*effectiveModelPlan
 	storeGenerations  map[string]uint64
 	storeLocks        map[string]*sync.Mutex
 	pollStates        map[string]*pollState
@@ -159,6 +161,8 @@ func WithLogger(l logger.Logger) Option {
 func New(options ...Option) *Index {
 	index := &Index{
 		entries:           make(map[indexKey]*entry),
+		effectiveEntries:  make(map[effectiveIndexKey]*effectiveEntry),
+		effectivePlans:    make(map[string]*effectiveModelPlan),
 		storeGenerations:  make(map[string]uint64),
 		storeLocks:        make(map[string]*sync.Mutex),
 		pollStates:        make(map[string]*pollState),
@@ -212,20 +216,41 @@ func (i *Index) BeginMutation(
 	writes []*openfgav1.TupleKey,
 	deletes []*openfgav1.TupleKeyWithoutCondition,
 ) *Mutation {
+	storeLock := i.getStoreLock(storeID)
+	storeLock.Lock()
+
 	keys := affectedKeys(storeID, writes, deletes)
 	entries := make([]*entry, 0, len(keys))
 	for _, key := range keys {
 		entries = append(entries, i.getEntry(key))
 	}
 
-	locks := make([]*sync.Mutex, 0, len(entries))
+	i.mu.Lock()
+	effectiveKeys := make([]effectiveIndexKey, 0)
+	for key := range i.effectiveEntries {
+		if key.storeID == storeID {
+			effectiveKeys = append(effectiveKeys, key)
+		}
+	}
+	i.mu.Unlock()
+	sort.Slice(effectiveKeys, func(a, b int) bool {
+		return effectiveKeys[a].modelID < effectiveKeys[b].modelID
+	})
+
+	locks := make([]*sync.Mutex, 0, len(entries)+len(effectiveKeys))
 	for _, entry := range entries {
 		entry.mu.Lock()
 		resetEntry(entry)
 		locks = append(locks, &entry.mu)
 	}
+	for _, key := range effectiveKeys {
+		effectiveEntry := i.getEffectiveEntry(key)
+		effectiveEntry.mu.Lock()
+		resetEffectiveEntry(effectiveEntry)
+		locks = append(locks, &effectiveEntry.mu)
+	}
 
-	return &Mutation{locks: locks}
+	return &Mutation{locks: locks, storeLock: storeLock}
 }
 
 // Invalidate removes all derived closures for a store. It is intended for
@@ -248,11 +273,22 @@ func (i *Index) BeginStoreMutation(storeID string) *Mutation {
 			entries = append(entries, entry)
 		}
 	}
+	effectiveEntries := make([]*effectiveEntry, 0)
+	for key, entry := range i.effectiveEntries {
+		if key.storeID == storeID {
+			effectiveEntries = append(effectiveEntries, entry)
+		}
+	}
 	i.mu.Unlock()
 
 	for _, entry := range entries {
 		entry.mu.Lock()
 		resetEntry(entry)
+		entry.mu.Unlock()
+	}
+	for _, entry := range effectiveEntries {
+		entry.mu.Lock()
+		resetEffectiveEntry(entry)
 		entry.mu.Unlock()
 	}
 

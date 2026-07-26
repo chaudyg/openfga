@@ -187,7 +187,11 @@ func (s *Recursive) recursiveMatch(ctx context.Context, req *Request, recursiveE
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if recursiveType == RecursiveTypeTTU && s.reachability != nil && !hasContextualTuplesForRelation(req, recursiveEdge.GetTuplesetRelation()) {
+	tuplesetRelation := recursiveEdge.GetTuplesetRelation()
+	if _, relation := tuple.SplitObjectRelation(tuplesetRelation); relation != "" {
+		tuplesetRelation = relation
+	}
+	if recursiveType == RecursiveTypeTTU && s.reachability != nil && !hasContextualTuplesForRelation(req, tuplesetRelation) {
 		seeds := make([]string, 0, len(idsFromObject))
 		objectType := ""
 		for object := range idsFromObject {
@@ -207,7 +211,7 @@ func (s *Recursive) recursiveMatch(ctx context.Context, req *Request, recursiveE
 				s.datastore,
 				req.GetStoreID(),
 				objectType,
-				recursiveEdge.GetTuplesetRelation(),
+				tuplesetRelation,
 				seeds,
 				idsFromUser,
 			)

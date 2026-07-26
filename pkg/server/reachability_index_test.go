@@ -204,7 +204,9 @@ func TestCheck_ReachabilityIndexDoesNotRetainSnapshotAcrossWrite(t *testing.T) {
 		select {
 		case err := <-checkErr:
 			require.NoError(t, err)
-			require.True(t, (<-checkDone).GetAllowed())
+			// The effective-subject fast path waits behind the mutation guard,
+			// so a check that did not finish before commit observes the revoke.
+			require.False(t, (<-checkDone).GetAllowed())
 		case <-time.After(time.Second):
 			t.Fatal("check did not complete after write committed")
 		}

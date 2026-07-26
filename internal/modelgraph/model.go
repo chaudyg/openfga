@@ -18,6 +18,7 @@ var ErrInvalidModel = errors.New("invalid authorization model encountered")
 
 type AuthorizationModelGraph struct {
 	*authzGraph.WeightedAuthorizationModelGraph
+	model         *openfgav1.AuthorizationModel
 	modelID       string
 	schemaVersion string
 	conditions    map[string]*condition.EvaluableCondition
@@ -38,10 +39,18 @@ func New(model *openfgav1.AuthorizationModel) (*AuthorizationModelGraph, error) 
 	}
 	return &AuthorizationModelGraph{
 		WeightedAuthorizationModelGraph: graph,
+		model:                           model,
 		modelID:                         model.GetId(),
 		schemaVersion:                   model.GetSchemaVersion(),
 		conditions:                      conditions,
 	}, nil
+}
+
+func (m *AuthorizationModelGraph) GetAuthorizationModel() *openfgav1.AuthorizationModel {
+	if m == nil {
+		return nil
+	}
+	return m.model
 }
 
 func (m *AuthorizationModelGraph) GetModelID() string {

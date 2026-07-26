@@ -272,6 +272,7 @@ func (q *CheckQueryV2) resolve(ctx context.Context, params *CheckCommandParams) 
 		UpstreamTimeout:           q.upstreamTimeout,
 		Logger:                    q.logger,
 		ReachabilityIndex:         q.reachabilityIndex,
+		ReachabilityDatastore:     q.datastore,
 	})
 
 	res, err := resolver.ResolveCheck(ctx, r)
