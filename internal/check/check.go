@@ -95,7 +95,7 @@ func New(cfg Config) *Resolver {
 		r.strategies = map[string]Strategy{
 			DefaultStrategyName:   NewDefault(cfg.Model, r, cfg.ConcurrencyLimit),
 			WeightTwoStrategyName: NewWeight2(cfg.Model, cfg.Datastore),
-			RecursiveStrategyName: NewRecursive(cfg.Model, cfg.Datastore, cfg.ConcurrencyLimit, cfg.ReachabilityIndex),
+			RecursiveStrategyName: NewRecursive(cfg.Model, cfg.Datastore, cfg.ConcurrencyLimit),
 		}
 	}
 
