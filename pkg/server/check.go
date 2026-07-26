@@ -20,6 +20,7 @@ import (
 	"github.com/openfga/openfga/internal/cachecontroller"
 	"github.com/openfga/openfga/internal/graph"
 	"github.com/openfga/openfga/internal/modelgraph"
+	"github.com/openfga/openfga/internal/reachability"
 	"github.com/openfga/openfga/internal/telemetry"
 	"github.com/openfga/openfga/internal/utils"
 	"github.com/openfga/openfga/internal/utils/apimethod"
@@ -75,7 +76,7 @@ func (s *Server) Check(ctx context.Context, req *openfgav1.CheckRequest) (*openf
 	var v2FallbackErr error
 
 	if s.featureFlagClient.Boolean(serverconfig.ExperimentalWeightedGraphCheck, storeID) {
-		res, err := s.v2Check(ctx, req, s.sharedDatastoreResources.CheckCache, s.sharedDatastoreResources.CacheController, s.authzModelGraphResolver)
+		res, err := s.v2Check(ctx, req, s.sharedDatastoreResources.CheckCache, s.sharedDatastoreResources.CacheController, s.authzModelGraphResolver, s.reachabilityIndexForStore(storeID))
 
 		// v2Check can return errors that v1 Check wouldn't (e.g. ErrInvalidModel when the weighted graph
 		// can't represent the model). Fallback to v1 on non-timeout errors for backward compatibility.
@@ -331,7 +332,9 @@ func (s *Server) shadowV2Check(ctx context.Context, req *openfgav1.CheckRequest,
 			attribute.String("store_id", req.GetStoreId()),
 		))
 		defer shadowSpan.End()
-		res, err = s.v2Check(newCtx, req, s.sharedDatastoreResources.ShadowCheckCache, s.sharedDatastoreResources.ShadowCacheController, s.shadowAuthzModelGraphResolver)
+		// The shadow run measures the v2 engine against v1; index answers
+		// would contaminate the comparison, so no reachability index here.
+		res, err = s.v2Check(newCtx, req, s.sharedDatastoreResources.ShadowCheckCache, s.sharedDatastoreResources.ShadowCacheController, s.shadowAuthzModelGraphResolver, nil)
 
 		if res != nil {
 			shadowQueryCount := float64(res.DatastoreQueryCount)
@@ -388,6 +391,7 @@ func (s *Server) v2Check(
 	cache storage.InMemoryCache[any],
 	cacheController cachecontroller.CacheController,
 	modelGraphResolver *modelgraph.AuthorizationModelGraphResolver,
+	reachabilityIndex *reachability.Index,
 ) (*commands.CheckResult, error) {
 	storeID := req.GetStoreId()
 	tk := req.GetTupleKey()
@@ -432,6 +436,7 @@ func (s *Server) v2Check(
 		commands.WithCheckQueryV2ConcurrencyLimit(int(s.resolveNodeBreadthLimit)),
 		commands.WithCheckQueryV2UpstreamTimeout(s.requestTimeout),
 		commands.WithCheckQueryV2SharedResources(s.sharedDatastoreResources),
+		commands.WithCheckQueryV2ReachabilityIndex(reachabilityIndex),
 	)
 
 	res, err := q.Execute(ctx, &commands.CheckCommandParams{

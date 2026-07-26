@@ -28,6 +28,7 @@ import (
 	"github.com/openfga/openfga/internal/listobjects/pipeline"
 	"github.com/openfga/openfga/internal/modelgraph"
 	"github.com/openfga/openfga/internal/planner"
+	"github.com/openfga/openfga/internal/reachability"
 	"github.com/openfga/openfga/internal/shared"
 	"github.com/openfga/openfga/internal/telemetry"
 	"github.com/openfga/openfga/internal/throttler"
@@ -256,15 +257,55 @@ type Server struct {
 	requestTimeout time.Duration
 
 	sharedResourceOptions []shared.SharedDatastoreResourcesOpt
+	reachabilityIndex     *reachability.Index
+
+	// reachabilityIndexSingleWriter asserts that every tuple mutation is
+	// handled by this process, so precise local invalidation is sufficient
+	// and snapshot TTL expiry is disabled.
+	reachabilityIndexSingleWriter bool
+
+	// reachabilityIndexSnapshotTTL bounds the staleness of served index
+	// snapshots when the single-writer assertion is not made.
+	reachabilityIndexSnapshotTTL time.Duration
 }
 
 type OpenFGAServiceV1Option func(s *Server)
+
+func (s *Server) reachabilityIndexForStore(storeID string) *reachability.Index {
+	// Only the v2 check path consults the index, so without the
+	// weighted-graph flag mutations must not pay the guard either.
+	if s.reachabilityIndexSingleWriter &&
+		s.featureFlagClient.Boolean(serverconfig.ExperimentalReachabilityIndex, storeID) &&
+		s.featureFlagClient.Boolean(serverconfig.ExperimentalWeightedGraphCheck, storeID) {
+		return s.reachabilityIndex
+	}
+	return nil
+}
 
 // WithDatastore passes a datastore to the Server.
 // You must call [storage.OpenFGADatastore.Close] on it after you have stopped using it.
 func WithDatastore(ds storage.OpenFGADatastore) OpenFGAServiceV1Option {
 	return func(s *Server) {
 		s.datastore = ds
+	}
+}
+
+// WithReachabilityIndexSingleWriter asserts that every tuple mutation is
+// guaranteed to be handled by this server process. The experimental
+// reachability index then relies solely on its precise local invalidation and
+// skips snapshot TTL expiry.
+func WithReachabilityIndexSingleWriter() OpenFGAServiceV1Option {
+	return func(s *Server) {
+		s.reachabilityIndexSingleWriter = true
+	}
+}
+
+// WithReachabilityIndexSnapshotTTL bounds how long the experimental
+// reachability index may serve a snapshot without rebuilding it from the
+// datastore. It has no effect when WithReachabilityIndexSingleWriter is set.
+func WithReachabilityIndexSnapshotTTL(ttl time.Duration) OpenFGAServiceV1Option {
+	return func(s *Server) {
+		s.reachabilityIndexSnapshotTTL = ttl
 	}
 }
 
@@ -929,7 +970,8 @@ func NewServerWithOpts(opts ...OpenFGAServiceV1Option) (*Server, error) {
 			EvictionThreshold: serverconfig.DefaultPlannerEvictionThreshold,
 			CleanupInterval:   serverconfig.DefaultPlannerCleanupInterval,
 		}),
-		requestTimeout: serverconfig.DefaultRequestTimeout,
+		requestTimeout:               serverconfig.DefaultRequestTimeout,
+		reachabilityIndexSnapshotTTL: serverconfig.DefaultCacheControllerTTL,
 	}
 
 	for _, opt := range opts {
@@ -995,6 +1037,19 @@ func NewServerWithOpts(opts ...OpenFGAServiceV1Option) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	reachabilityOptions := make([]reachability.Option, 0, 1)
+	if s.reachabilityIndexSingleWriter {
+		// Every mutation passes through this process's mutation guard, so
+		// precise local invalidation suffices and snapshots never expire.
+		reachabilityOptions = append(reachabilityOptions, reachability.WithSnapshotTTL(0))
+	} else {
+		reachabilityOptions = append(
+			reachabilityOptions,
+			reachability.WithSnapshotTTL(s.reachabilityIndexSnapshotTTL),
+		)
+	}
+	s.reachabilityIndex = reachability.New(reachabilityOptions...)
 
 	s.sharedResourceOptions = append(s.sharedResourceOptions, shared.WithLogger(s.logger))
 

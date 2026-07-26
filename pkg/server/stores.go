@@ -73,6 +73,11 @@ func (s *Server) DeleteStore(ctx context.Context, req *openfgav1.DeleteStoreRequ
 	}
 
 	cmd := commands.NewDeleteStoreCommand(s.datastore, commands.WithDeleteStoreCmdLogger(s.logger))
+	if index := s.reachabilityIndexForStore(req.GetStoreId()); index != nil {
+		mutation := index.BeginStoreMutation(req.GetStoreId())
+		defer mutation.End()
+	}
+
 	res, err := cmd.Execute(ctx, req)
 	if err != nil {
 		return nil, err

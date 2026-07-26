@@ -153,6 +153,7 @@ func setupCheckServer(t *testing.T, modelDSL string, tuples []*openfgav1.TupleKe
 		StoreId:         storeID,
 		SchemaVersion:   model.GetSchemaVersion(),
 		TypeDefinitions: model.GetTypeDefinitions(),
+		Conditions:      model.GetConditions(),
 	})
 	require.NoError(t, err)
 	modelID := writeModelResp.GetAuthorizationModelId()
@@ -467,6 +468,7 @@ func TestV2CheckCacheSeparation(t *testing.T) {
 			s.sharedDatastoreResources.ShadowCheckCache,
 			s.sharedDatastoreResources.ShadowCacheController,
 			s.shadowAuthzModelGraphResolver,
+			nil,
 		)
 		require.NoError(t, err)
 
@@ -493,6 +495,7 @@ func TestV2CheckCacheSeparation(t *testing.T) {
 			s.sharedDatastoreResources.CheckCache,
 			s.sharedDatastoreResources.CacheController,
 			s.authzModelGraphResolver,
+			nil,
 		)
 		require.NoError(t, err)
 
@@ -663,6 +666,7 @@ func TestV2Check_SanitizeRequest(t *testing.T) {
 			s.sharedDatastoreResources.CheckCache,
 			s.sharedDatastoreResources.CacheController,
 			s.authzModelGraphResolver,
+			nil,
 		)
 		return err
 	}
@@ -766,6 +770,7 @@ func TestV2CheckQueryCacheEnabled(t *testing.T) {
 			s.sharedDatastoreResources.CheckCache,
 			s.sharedDatastoreResources.CacheController,
 			s.authzModelGraphResolver,
+			nil,
 		)
 		require.NoError(t, err)
 		require.True(t, res.Allowed)
@@ -780,6 +785,7 @@ func TestV2CheckQueryCacheEnabled(t *testing.T) {
 			s.sharedDatastoreResources.CheckCache,
 			s.sharedDatastoreResources.CacheController,
 			s.authzModelGraphResolver,
+			nil,
 		)
 		require.NoError(t, err)
 		require.True(t, res.Allowed)
@@ -805,6 +811,7 @@ func TestV2CheckQueryCacheEnabled(t *testing.T) {
 			s.sharedDatastoreResources.CheckCache,
 			s.sharedDatastoreResources.CacheController,
 			s.authzModelGraphResolver,
+			nil,
 		)
 		require.NoError(t, err)
 		require.True(t, res.Allowed)

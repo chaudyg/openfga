@@ -22,6 +22,7 @@ import (
 	"github.com/openfga/openfga/internal/iterator"
 	"github.com/openfga/openfga/internal/modelgraph"
 	"github.com/openfga/openfga/internal/planner"
+	"github.com/openfga/openfga/internal/reachability"
 	"github.com/openfga/openfga/internal/telemetry"
 	"github.com/openfga/openfga/pkg/logger"
 	"github.com/openfga/openfga/pkg/storage"
@@ -47,11 +48,15 @@ type Config struct {
 	UpstreamTimeout           time.Duration
 	Logger                    logger.Logger
 	Strategies                map[string]Strategy
+	ReachabilityIndex         *reachability.Index
+	ReachabilityDatastore     storage.RelationshipTupleReader
 }
 
 type Resolver struct {
 	model                     *modelgraph.AuthorizationModelGraph
 	datastore                 storage.RelationshipTupleReader
+	reachability              *reachability.Index
+	reachabilityDatastore     storage.RelationshipTupleReader
 	cache                     storage.InMemoryCache[any]
 	cacheTTL                  time.Duration
 	lastCacheInvalidationTime time.Time
@@ -67,6 +72,8 @@ func New(cfg Config) *Resolver {
 	r := &Resolver{
 		model:                     cfg.Model,
 		datastore:                 cfg.Datastore,
+		reachability:              cfg.ReachabilityIndex,
+		reachabilityDatastore:     cfg.ReachabilityDatastore,
 		cache:                     cfg.Cache,
 		cacheTTL:                  cfg.CacheTTL,
 		lastCacheInvalidationTime: cfg.LastCacheInvalidationTime,
@@ -79,6 +86,9 @@ func New(cfg Config) *Resolver {
 
 	if r.cache == nil {
 		r.cache = storage.NewNoopCache()
+	}
+	if r.reachabilityDatastore == nil {
+		r.reachabilityDatastore = r.datastore
 	}
 
 	if r.strategies == nil {
@@ -110,6 +120,32 @@ func (r *Resolver) ResolveCheck(ctx context.Context, req *Request) (*Response, e
 			span.RecordError(err)
 		}
 	}(ctx)
+
+	if r.reachability != nil &&
+		len(req.GetContextualTuples()) == 0 &&
+		req.GetConsistency() != openfgav1.ConsistencyPreference_HIGHER_CONSISTENCY &&
+		!req.IsTypedWildcard() {
+		matches, used, err := r.reachability.MatchesEffectiveSubjectForModel(
+			ctx,
+			r.reachabilityDatastore,
+			req.GetStoreID(),
+			r.model.GetAuthorizationModel(),
+			req.GetTupleKey().GetObject(),
+			req.GetTupleKey().GetRelation(),
+			req.GetTupleKey().GetUser(),
+			req.GetContext(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if used {
+			span.SetAttributes(
+				attribute.Bool("allowed", matches),
+				attribute.Bool("reachability.effective_subjects", true),
+			)
+			return &Response{Allowed: matches}, nil
+		}
+	}
 
 	node, ok := r.model.GetNodeByID(tuple.ToObjectRelationString(req.GetObjectType(), req.GetTupleKey().GetRelation()))
 	if !ok {

@@ -108,6 +108,7 @@ func (s *Server) BatchCheck(ctx context.Context, req *openfgav1.BatchCheckReques
 				commands.WithCheckQueryV2ConcurrencyLimit(int(s.resolveNodeBreadthLimit)),
 				commands.WithCheckQueryV2UpstreamTimeout(s.requestTimeout),
 				commands.WithCheckQueryV2SharedResources(s.sharedDatastoreResources),
+				commands.WithCheckQueryV2ReachabilityIndex(s.reachabilityIndexForStore(storeID)),
 				commands.WithCheckQueryV2Fallback(v1Checker),
 			)
 		} else if commands.IsV2CheckTerminalError(mgErr) {

@@ -180,6 +180,7 @@ func (s *Recursive) execute(ctx context.Context, req *Request, edge *authzGraph.
 func (s *Recursive) recursiveMatch(ctx context.Context, req *Request, recursiveEdge *authzGraph.WeightedAuthorizationModelEdge, recursiveType RecursiveType, idsFromUser, idsFromObject map[string]struct{}) (*Response, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
 	responsesChan := make(chan ResponseMsg, s.concurrencyLimit) // needs to be buffered to prevent out of order closed events
 
 	var err error
